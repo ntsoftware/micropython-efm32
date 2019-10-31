@@ -1,0 +1,3 @@
+DEVICE = EFM32GG990F1024
+LD_DIR = devices/EFM32GG/Source
+LD_FILES = efm32gg.ld

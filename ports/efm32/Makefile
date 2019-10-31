@@ -1,4 +1,17 @@
+# Select the board to build for: if not given on the command line,
+# then default to EFM32GG_STK3700.
+BOARD ?= EFM32GG_STK3700
+
+# If the build directory is not given, make it reflect the board name.
+BUILD ?= build-$(BOARD)
+
+BOARD_DIR ?= boards/$(BOARD)
+ifeq ($(wildcard $(BOARD_DIR)/.),)
+$(error Invalid BOARD specified: $(BOARD_DIR))
+endif
+
 include ../../py/mkenv.mk
+include $(BOARD_DIR)/mpconfigboard.mk
 
 # qstr definitions (must come before including py.mk)
 QSTR_DEFS = qstrdefsport.h
@@ -6,85 +19,106 @@ QSTR_DEFS = qstrdefsport.h
 # include py core make definitions
 include $(TOP)/py/py.mk
 
+STARTUP_FILE ?= devices/EFM32GG/Source/startup_efm32gg.o
+SYSTEM_FILE ?= devices/EFM32GG/Source/system_efm32gg.o
+
+# Select the cross compile prefix
 CROSS_COMPILE = arm-none-eabi-
 
 INC += -I.
 INC += -I$(TOP)
+INC += -I$(TOP)/lib/cmsis/inc
 INC += -I$(BUILD)
+INC += -Iemlib/inc
+INC += -Iusb/inc
 
-CFLAGS_CORTEX_M4 = -mthumb -mtune=cortex-m4 -mcpu=cortex-m4 -msoft-float -fsingle-precision-constant -Wdouble-promotion
-CFLAGS = $(INC) -Wall -Werror -std=c99 -nostdlib $(CFLAGS_CORTEX_M4) $(COPT)
-LDFLAGS = -nostdlib -T stm32f405.ld -Map=$@.map --cref --gc-sections
+CFLAGS_CORTEX_M3 = -mthumb -mtune=cortex-m3 -mcpu=cortex-m3 -msoft-float -fsingle-precision-constant -Wdouble-promotion
 
-CSUPEROPT = -Os # save some code space
+CFLAGS = $(INC) -Wall -Wpointer-arith -Werror -std=gnu99 -nostdlib $(CFLAGS_MOD) $(CFLAGS_EXTRA)
+CFLAGS += -D$(DEVICE)
+CFLAGS += $(CFLAGS_CORTEX_M3)
+CFLAGS += $(COPT)
+CFLAGS += -I$(BOARD_DIR)
+
+LDFLAGS = -nostdlib -L $(LD_DIR) $(addprefix -T,$(LD_FILES)) -Map=$(@:.elf=.map) --cref
+
+# Remove uncalled code from the final image.
+CFLAGS += -fdata-sections -ffunction-sections
+LDFLAGS += --gc-sections
 
 # Tune for Debugging or Optimization
 ifeq ($(DEBUG), 1)
 CFLAGS += -O0 -ggdb
 else
 CFLAGS += -Os -DNDEBUG
-CFLAGS += -fdata-sections -ffunction-sections
 endif
 
-LIBS =
+# Options for mpy-cross
+MPY_CROSS_FLAGS += -march=armv7m
 
-SRC_EMLIB = \
-	emlib/src/em_acmp.c \
-	emlib/src/em_adc.c \
-	emlib/src/em_aes.c \
-	emlib/src/em_assert.c \
-	emlib/src/em_burt.c \
-	emlib/src/em_can.c \
-	emlib/src/em_cmu.c \
-	emlib/src/em_core.c \
-	emlib/src/em_cryotimer.c \
-	emlib/src/em_crypto.c \
-	emlib/src/em_csen.c \
-	emlib/src/em_dac.c \
-	emlib/src/em_dbg.c \
-	emlib/src/em_dma.c \
-	emlib/src/em_ebi.c \
-	emlib/src/em_emu.c \
-	emlib/src/em_eusart.c \
-	emlib/src/em_gpcrc.c \
-	emlib/src/em_gpio.c \
-	emlib/src/em_i2c.c \
-	emlib/src/em_iadc.c \
-	emlib/src/em_idac.c \
-	emlib/src/em_int.c \
-	emlib/src/em_lcd.c \
-	emlib/src/em_ldma.c \
-	emlib/src/em_lesense.c \
-	emlib/src/em_letimer.c \
-	emlib/src/em_leuart.c \
-	emlib/src/em_mpu.c \
-	emlib/src/em_msc.c \
-	emlib/src/em_opamp.c \
-	emlib/src/em_pcnt.c \
-	emlib/src/em_pdm.c \
-	emlib/src/em_prs.c \
-	emlib/src/em_qspi.c \
-	emlib/src/em_rmu.c \
-	emlib/src/em_rtc.c \
-	emlib/src/em_rtcc.c \
-	emlib/src/em_se.c \
-	emlib/src/em_system.c \
-	emlib/src/em_timer.c \
-	emlib/src/em_usart.c \
-	emlib/src/em_vcmp.c \
-	emlib/src/em_vdac.c \
-	emlib/src/em_wdog.c \
+CSUPEROPT = -Os # save some code space
 
-SRC_USB = \
-	usb/src/em_usbd.c \
-	usb/src/em_usbdch9.c \
-	usb/src/em_usbdep.c \
-	usb/src/em_usbdint.c \
-	usb/src/em_usbh.c \
-	usb/src/em_usbhal.c \
-	usb/src/em_usbhep.c \
-	usb/src/em_usbhint.c \
-	usb/src/em_usbtimer.c \
+LIBS = -Wl,--start-group -lgcc -lc -lnosys -Wl,--end-group
+
+SRC_EMLIB = $(addprefix emlib/src/, \
+	em_acmp.c \
+	em_adc.c \
+	em_aes.c \
+	em_assert.c \
+	em_burt.c \
+	em_can.c \
+	em_cmu.c \
+	em_core.c \
+	em_cryotimer.c \
+	em_crypto.c \
+	em_csen.c \
+	em_dac.c \
+	em_dbg.c \
+	em_dma.c \
+	em_ebi.c \
+	em_emu.c \
+	em_eusart.c \
+	em_gpcrc.c \
+	em_gpio.c \
+	em_i2c.c \
+	em_iadc.c \
+	em_idac.c \
+	em_int.c \
+	em_lcd.c \
+	em_ldma.c \
+	em_lesense.c \
+	em_letimer.c \
+	em_leuart.c \
+	em_mpu.c \
+	em_msc.c \
+	em_opamp.c \
+	em_pcnt.c \
+	em_pdm.c \
+	em_prs.c \
+	em_qspi.c \
+	em_rmu.c \
+	em_rtc.c \
+	em_rtcc.c \
+	em_se.c \
+	em_system.c \
+	em_timer.c \
+	em_usart.c \
+	em_vcmp.c \
+	em_vdac.c \
+	em_wdog.c \
+)
+
+SRC_USB = $(addprefix usb/src/, \
+	em_usbd.c \
+	em_usbdch9.c \
+	em_usbdep.c \
+	em_usbdint.c \
+	em_usbh.c \
+	em_usbhal.c \
+	em_usbhep.c \
+	em_usbhint.c \
+	em_usbtimer.c \
+)
 
 SRC_C = \
 	main.c \
@@ -96,7 +130,15 @@ SRC_C = \
 	lib/mp-readline/readline.c \
 	$(BUILD)/_frozen_mpy.c \
 
-OBJ = $(PY_CORE_O) $(addprefix $(BUILD)/, $(SRC_C:.c=.o))
+SRC_O = \
+	$(STARTUP_FILE) \
+	$(SYSTEM_FILE)
+
+OBJ = $(PY_CORE_O)
+OBJ += $(addprefix $(BUILD)/, $(SRC_C:.c=.o))
+OBJ += $(addprefix $(BUILD)/, $(SRC_O))
+OBJ += $(addprefix $(BUILD)/, $(SRC_EMLIB:.c=.o))
+OBJ += $(addprefix $(BUILD)/, $(SRC_USB:.c=.o))
 
 all: $(BUILD)/firmware.elf
 
